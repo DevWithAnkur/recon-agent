@@ -210,4 +210,4 @@ The evaluation compares predicted UTRs with `data/batch_mapping.csv` and prints 
 ## Author
 
 **Ankur Verma**
-[github.com/ankurtheconqueror](https://github.com/ankurtheconqueror)
+ankur.theconqueror@gmail.com
