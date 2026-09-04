@@ -234,6 +234,12 @@ Environment variables and API keys are strictly scoped locally via `.env`. To pr
 - Parsers for real bank statement formats and settlement file variants.
 - A production dashboard for batch summaries, exception review, and audit exploration.
 
+## Roadmap to Production: Razorpay Integration
+
+**Handling Domain-Specific Quirks:** While this prototype evaluates synthetic flat-fee ledgers, the modular Layer 1 engine is designed to scale into Razorpay's actual settlement mechanics, specifically handling multi-UTR batch patterns, partial captures, and refund-linked adjustments.
+
+**Constrained Agentic Depth:** In financial ledgers, unbounded agentic reasoning is a compliance liability. Layer 2 operates strictly as a routing and evaluation agent to prevent hallucinated mutations. Future iterations will introduce deterministic Tool-Calling, allowing the agent to query external banking APIs for missing context without mutating the state autonomously.
+
 ## Author
 
 **Ankur Verma**
