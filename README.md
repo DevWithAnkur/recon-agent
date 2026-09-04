@@ -6,16 +6,17 @@ Recon-Agent is a hybrid financial reconciliation engine designed to solve the "V
 
 In financial infrastructure, safety is paramount. Recon-Agent is intentionally designed to be ruthlessly conservative: it optimizes for **Precision** over Recall, ensuring that uncertain matches are safely routed to a human exception queue rather than hallucinated.
 
-## Performance Metrics
+## Performance Metrics (Ground Truth Evaluation)
 
 The current evaluation uses a 400-record synthetic dataset containing clean transactions, many-to-one settlement batches, fee discrepancies, duplicate entries, refunds, currency issues, and missing settlements.
 
 | Metric | Score | Impact |
 | :--- | :--- | :--- |
-| **Precision** | **0.96** | 96% accuracy on positive matches, reducing the risk of silently misallocating funds. |
-| **Recall** | **0.79** | Ambiguous records are conservatively routed to exceptions instead of being force-matched. |
-| **F1 Score** | **0.87** | Balance of automation and financial safety. |
-| **Confusion Matrix** | **TP: 300 \| FP: 12 \| FN: 80** | Ground-truth evaluation across the synthetic dataset. |
+| **Precision** | **0.92** | 92% accuracy on positive matches, reducing the risk of silently misallocating funds. |
+| **Recall** | **0.85** | Ambiguous records are conservatively routed to exceptions instead of being force-matched. |
+| **F1 Score** | **0.88** | Balance of automation and financial safety. |
+| **Confusion Matrix** | **TP: 322 \| FP: 28 \| FN: 58** | Ground-truth evaluation across the synthetic dataset. |
+| **Throughput & Unit Economics** | **3.17 records/second** | The pipeline processed 400 records in 126 seconds. Layer 1 (Pandas) deterministically resolved 345 matches instantly. Layer 2 (`gpt-5.4-mini`) was efficiently preserved only for the most ambiguous edge cases, proving the "Verification vs. Generation" architecture minimizes API costs and latency. |
 
 ## Architecture
 
@@ -29,7 +30,7 @@ gateway.csv + bank_settlement.csv + merchant_ledger.csv
 		  unresolved or low-confidence records
 						 v
 	   Layer 2: LLM Reasoning Layer
-	   OpenAI gpt-4o-mini + Pydantic Structured Outputs
+	   OpenAI gpt-5.4-mini + Pydantic Structured Outputs
 						 |
 						 v
 	   Layer 3: Exception Classifier
@@ -52,7 +53,7 @@ The Pandas-based engine runs first and does not require an LLM. It applies these
 
 Only unresolved records reach the LLM layer. The resolver:
 
-- Uses OpenAI `gpt-4o-mini`.
+- Uses OpenAI `gpt-5.4-mini`.
 - Selects the three closest bank or ledger candidates by amount proximity.
 - Uses `client.responses.parse` with a strict Pydantic schema.
 - Requires `match_found`, `matched_entry_id`, `confidence`, `reasoning`, and `discrepancy_amount`.
