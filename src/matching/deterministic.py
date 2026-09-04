@@ -9,7 +9,7 @@ import pandas as pd
 
 
 DEFAULT_FEE_RATE = 0.02
-DEFAULT_TOLERANCE = 1.0
+FEE_TOLERANCE_PCT = 0.025
 DEFAULT_SETTLEMENT_WINDOW = (0, 2)
 
 
@@ -104,7 +104,7 @@ def fee_adjusted_match(
 	gateway: pd.DataFrame,
 	bank: pd.DataFrame,
 	fee_rate: float = DEFAULT_FEE_RATE,
-	tolerance: float = DEFAULT_TOLERANCE,
+	tolerance: float | None = None,
 	settlement_window: tuple[int, int] = DEFAULT_SETTLEMENT_WINDOW,
 	excluded_order_ids: Iterable[str] = (),
 	excluded_utrs: Iterable[str] = (),
@@ -126,8 +126,9 @@ def fee_adjusted_match(
 			candidates["settled_amount"].astype(float) - expected_amount
 		).abs()
 		candidates = candidates.sort_values("difference")
+		amount_tolerance = float(gateway_row["amount"]) * FEE_TOLERANCE_PCT
 		for bank_index, bank_row in candidates.iterrows():
-			if float(bank_row["difference"]) > tolerance:
+			if float(bank_row["difference"]) > amount_tolerance:
 				break
 			if not _within_settlement_window(
 				gateway_dates.loc[gateway_index],
@@ -151,13 +152,14 @@ def fee_adjusted_match(
 
 
 def _find_combination(
-	candidates: list[tuple[str, float, pd.Timestamp]],
+	candidates: list[tuple[str, float, pd.Timestamp, float]],
 	target: float,
-	tolerance: float,
 	maximum_size: int = 20,
-) -> list[tuple[str, float, pd.Timestamp]] | None:
+) -> list[tuple[str, float, pd.Timestamp, float]] | None:
 	for size in range(2, min(maximum_size, len(candidates)) + 1):
 		for combination in combinations(candidates, size):
+			gateway_amount = sum(item[3] for item in combination)
+			tolerance = gateway_amount * FEE_TOLERANCE_PCT
 			if abs(sum(item[1] for item in combination) - target) <= tolerance:
 				return list(combination)
 	return None
@@ -167,7 +169,7 @@ def many_to_one_batch_match(
 	gateway: pd.DataFrame,
 	bank: pd.DataFrame,
 	fee_rate: float = DEFAULT_FEE_RATE,
-	tolerance: float = DEFAULT_TOLERANCE,
+	tolerance: float | None = None,
 	settlement_window: tuple[int, int] = DEFAULT_SETTLEMENT_WINDOW,
 	excluded_order_ids: Iterable[str] = (),
 	excluded_utrs: Iterable[str] = (),
@@ -182,6 +184,7 @@ def many_to_one_batch_match(
 			str(row["order_id"]),
 			round(float(row["amount"]) * (1 - fee_rate), 2),
 			gateway_dates.loc[index],
+			float(row["amount"]),
 		)
 		for index, row in gateway.iterrows()
 		if str(row["order_id"]) not in excluded_orders
@@ -201,7 +204,6 @@ def many_to_one_batch_match(
 		combination = _find_combination(
 			eligible,
 			float(bank_row["settled_amount"]),
-			tolerance,
 		)
 		if combination is None:
 			continue
@@ -228,7 +230,7 @@ def run_deterministic_matching(
 	gateway: pd.DataFrame,
 	bank: pd.DataFrame,
 	fee_rate: float = DEFAULT_FEE_RATE,
-	tolerance: float = DEFAULT_TOLERANCE,
+	tolerance: float | None = None,
 	settlement_window: tuple[int, int] = DEFAULT_SETTLEMENT_WINDOW,
 ) -> list[Match]:
 	"""Run Layer 1 strategies in the PRD-prescribed order."""

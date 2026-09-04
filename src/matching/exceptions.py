@@ -53,21 +53,33 @@ def classify_exception(
 	amount = float(gateway.get("amount", 0))
 	status = str(gateway.get("status", "")).lower()
 
-	if not candidate_records:
+	if gateway.get("currency") not in (None, "INR"):
+		reason_code = "currency_rounding"
+		reason = "The gateway currency is outside the supported INR reconciliation scope."
+	elif status == "refund":
+		reason_code = "refund_not_netted"
+		reason = "The gateway refund is not reflected in the settlement amount."
+	elif not candidate_records:
 		reason_code = "missing_settlement"
 		reason = "No corresponding bank or ledger entry was found."
 	elif len(candidate_records) > 1:
 		amounts = [_candidate_amount(candidate) for candidate in candidate_records]
-		close_candidates = [value for value in amounts if value is not None and abs(value - amount) <= tolerance]
+		expected_fee_amount = amount * (1 - 0.02)
+		close_candidates = [
+			value
+			for value in amounts
+			if value is not None
+			and (
+				abs(value - amount) <= tolerance
+				or abs(value - expected_fee_amount) <= tolerance
+			)
+		]
 		if len(close_candidates) > 1:
 			reason_code = "duplicate_entry"
 			reason = "Multiple candidate entries plausibly match this transaction."
 		else:
 			reason_code = "fee_calculation_mismatch"
 			reason = "Candidate amounts do not match a supported fee calculation."
-	elif status == "refund":
-		reason_code = "refund_not_netted"
-		reason = "The gateway refund is not reflected in the settlement amount."
 	else:
 		candidate = candidate_records[0]
 		candidate_amount_value = _candidate_amount(candidate)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -15,10 +16,8 @@ from src.reporting.webhook import notify_exception, notify_match, notify_summary
 
 
 def _candidate_rows(gateway_row: pd.Series, bank: pd.DataFrame) -> pd.DataFrame:
-	amount = float(gateway_row["amount"])
-	candidates = bank.copy()
-	candidates["_distance"] = (candidates["settled_amount"].astype(float) - amount).abs()
-	return candidates.sort_values("_distance").head(3).drop(columns="_distance")
+	order_id = str(gateway_row["order_id"])
+	return bank[bank["batch_reference"].astype(str) == order_id].head(3).copy()
 
 
 def reconcile(
@@ -38,23 +37,32 @@ def reconcile(
 	matched_utrs = {match.utr for match in matches}
 	llm_matches: list[Match] = []
 	exceptions: list[ExceptionRecord] = []
+	start_time = time.perf_counter()
 	for _, gateway_row in gateway.iterrows():
 		order_id = str(gateway_row["order_id"])
 		if order_id in matched_orders:
 			continue
 		candidates = _candidate_rows(gateway_row, bank)
-		try:
-			resolution = resolve_ambiguous_record(
-				gateway_row,
-				candidates,
-				confidence_threshold=confidence_threshold,
-			)
-		except Exception as error:
+		if os.getenv("OPENAI_API_KEY"):
+			try:
+				resolution = resolve_ambiguous_record(
+					gateway_row,
+					candidates,
+					confidence_threshold=confidence_threshold,
+				)
+			except Exception as error:
+				resolution = classify_exception(
+					gateway_row,
+					candidates,
+					confidence_at_failure=0.0,
+					llm_reasoning=f"LLM resolution unavailable: {error}",
+				)
+		else:
 			resolution = classify_exception(
 				gateway_row,
 				candidates,
 				confidence_at_failure=0.0,
-				llm_reasoning=f"LLM resolution unavailable: {error}",
+				llm_reasoning="LLM resolution skipped because OPENAI_API_KEY is not configured.",
 			)
 		if isinstance(resolution, Match) and resolution.utr not in matched_utrs:
 			llm_matches.append(resolution)
@@ -62,8 +70,24 @@ def reconcile(
 			matched_utrs.add(resolution.utr)
 		else:
 			exceptions.append(resolution)
+	total_time = time.perf_counter() - start_time
 	matches.extend(llm_matches)
+	layer_1_matches = 0
+	layer_2_matches = 0
+	for match in matches:
+		if match.strategy == "llm_resolver":
+			layer_2_matches += 1
+		else:
+			layer_1_matches += 1
 	report = build_match_rate_report(len(gateway), matches, exceptions)
+	report.update(
+		{
+			"total_execution_time": total_time,
+			"throughput": len(gateway) / total_time if total_time else 0.0,
+			"layer_1_matches": layer_1_matches,
+			"layer_2_matches": layer_2_matches,
+		}
+	)
 	if not dry_run:
 		write_audit_log(matches, exceptions)
 	if not no_webhook:
@@ -105,6 +129,12 @@ def main() -> None:
 		prefix = "[DRY-RUN] " if args.dry_run else ""
 		print(f"{prefix}{report['matched_records']} matched, {len(exceptions)} exceptions.")
 		print(f"{prefix}Match rate: {report['match_rate']:.1%}")
+		print(f"{prefix}Total Execution Time: {report['total_execution_time']:.4f} seconds")
+		print(f"{prefix}Throughput: {report['throughput']:.2f} records/second")
+		print(
+			f"{prefix}Layer 1 Matches: {report['layer_1_matches']} | "
+			f"Layer 2 Matches: {report['layer_2_matches']}"
+		)
 		if args.dry_run:
 			print(f"{prefix}No records committed.")
 

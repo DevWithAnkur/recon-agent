@@ -11,7 +11,7 @@ from src.matching.deterministic import Match
 from src.matching.exceptions import ExceptionRecord, classify_exception
 
 
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "gpt-5.4-mini"
 DEFAULT_CONFIDENCE_THRESHOLD = 0.85
 
 
@@ -118,6 +118,17 @@ def resolve_ambiguous_record(
 		and resolution.confidence >= confidence_threshold
 		and resolution.matched_entry_id
 	):
+		candidate_ids = {
+			str(candidate.get("utr", candidate.get("ledger_entry_id", "")))
+			for candidate in select_top_candidates(gateway_record, candidates)
+		}
+		if resolution.matched_entry_id not in candidate_ids:
+			return classify_exception(
+				gateway_record,
+				candidates,
+				confidence_at_failure=resolution.confidence,
+				llm_reasoning="The model returned an entry that was not among the supplied candidates.",
+			)
 		amount = float(gateway_record["amount"])
 		return Match(
 			order_ids=(str(gateway_record["order_id"]),),
