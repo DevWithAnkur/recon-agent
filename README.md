@@ -8,18 +8,16 @@ In financial infrastructure, safety is paramount. Recon-Agent is intentionally d
 
 ## Performance Metrics (Ground Truth Evaluation)
 
-The current evaluation uses a 400-record synthetic dataset containing clean transactions, many-to-one settlement batches, fee discrepancies, duplicate entries, refunds, currency issues, and missing settlements.
+| Metric               | Score                            | Impact                                                                                     |
+| -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| **Precision**        | **0.92**                         | 92% accuracy on positive matches, reducing the risk of silently misallocating funds.       |
+| **Recall**           | **0.85**                         | Fee-adjusted and batch matches now correctly resolve in Layer 1 instead of falling through.|
+| **F1 Score**         | **0.88**                         | Balance of automation and financial safety.                                                |
+| **Confusion Matrix** | **TP: 322 \| FP: 28 \| FN: 58**  | Ground-truth evaluation across the synthetic dataset.                                      |
 
-| Metric | Score | Impact |
-| :--- | :--- | :--- |
-| **Precision** | **0.92** | 92% accuracy on positive matches, reducing the risk of silently misallocating funds. |
-| **Recall** | **0.85** | Ambiguous records are conservatively routed to exceptions instead of being force-matched. |
-| **F1 Score** | **0.88** | Balance of automation and financial safety. |
-| **Confusion Matrix** | **TP: 322 \| FP: 28 \| FN: 58 \| TN: 12 (Total: 400 records)** | Ground-truth evaluation across the synthetic dataset. |
-| **Throughput & Unit Economics** | **3.17 records/second** | The pipeline processed 400 records in 126 seconds. Layer 1 (Pandas) deterministically resolved 345 matches instantly. Layer 2 (`gpt-5.4-mini`) was efficiently preserved only for the most ambiguous edge cases, proving the "Verification vs. Generation" architecture minimizes API costs and latency. |
+**Baseline vs. current:** the original flat fee-tolerance logic scored Precision 0.96 / Recall 0.79 / F1 0.87 (TP:300 FP:12 FN:80). Switching to a percentage-based fee tolerance (`FEE_TOLERANCE_PCT = 0.025`) recovered 22 false negatives but introduced 16 new false positives, trading some precision for meaningfully higher recall. F1 held roughly flat (+0.01), and this tradeoff is being actively tightened — see Known Limitations.
 
-- Because Layer 1 handled 345/400 records natively, the pipeline achieved an **86% reduction in API costs**. Only 55 highly ambiguous records required `gpt-5.4-mini` routing, cutting expected LLM expenditure from ~$0.10 per batch to under $0.02 while preserving precision.
-- **Baseline Comparison:** Compared to a naive Pure-LLM baseline (which would take ~30+ minutes and cost significantly more to process 400 records sequentially), our hybrid engine achieves a massive speedup (126 seconds) while enforcing strict deterministic boundaries to prevent LLM hallucinations.
+**Layer breakdown (current dataset):** 350/400 records (87.5%) resolved in Layer 1 — 216 exact matches, 127 fee-adjusted matches, 2 many-to-one batch groups (covering the remainder). 50 records escalated to the LLM layer; 0 cleared the 0.85 confidence threshold, so all 50 correctly became exceptions rather than being force-matched.
 
 ## Architecture
 
@@ -223,7 +221,7 @@ Environment variables and API keys are strictly scoped locally via `.env`. To pr
 - Version 1 assumes INR and does not provide full multi-currency reconciliation.
 - The LLM fallback depends on OpenAI availability and API latency.
 - Many-to-one matching is bounded to combinations of up to 20 gateway transactions. This ≤20 transaction bound is not a performance limitation, but a deliberate risk boundary designed to prevent unbounded recursion and runaway compute costs on heavily fragmented ledgers.
-- Fee handling currently uses configurable flat rates rather than a full tiered fee schedule.
+- Fee handling currently uses a flat 2.5% percentage tolerance rather than a tiered or capped schedule; this recovers more true matches but has increased false positives, and is a planned area for refinement (e.g., capping absolute tolerance for large-value batches).
 - The generated dataset is synthetic; real bank statement formats and production integrations are out of scope.
 - Webhook delivery depends on the configured Discord endpoint and network availability.
 
